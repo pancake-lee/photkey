@@ -170,7 +170,7 @@ LoadMappings()
 ; 构建并显示键盘映射 GUI（使用 keyboardImgPath 和 keyboardPos/mappings）
 BuildKeyboardGui()
 {
-	global keyboardImgPath, keyboardPos, mappings, tooltipDuration, keyboardGuiShown, colorMap, defaultColor, detectedScale
+	global keyboardImgPath, keyboardPos, mappings, tooltipDuration, keyboardGuiShown, colorMap, defaultColor
 	if !FileExist(keyboardImgPath)
 	{
 		ShowToast("keyboard image not found")
@@ -180,49 +180,81 @@ BuildKeyboardGui()
 	; 先销毁已有 GUI（如果有）
 	Gui, KeyboardGui: Destroy
 
-	; 创建无标题浮动窗口，图片为背景
+	; 获取监视器数量并选择目标监视器（优先第二屏，有则用 2，否则用 1）
+	SysGet, monCount, MonitorCount
+	if (monCount >= 2)
+		SysGet, mon, MonitorWorkArea, 1
+	else
+		SysGet, mon, MonitorWorkArea, 2
+
+    ; 显示原始大小
+    origW := 1920
+    origH := 500
+
+	; 目标宽度为目标显示器工作区宽的 80%
+	monWidth := monRight - monLeft
+    monHeight := monBottom - monTop
+    Log("monitor work area [" monLeft "," monTop "," monRight "," monBottom "] " monWidth "x" monHeight)
+
+	targetW := Round(monWidth * 0.8)
+	scale := targetW / origW
+	targetH := Round(origH * scale)
+    Log("target size: " targetW "x" targetH)
+
+	; 重新创建 GUI，使用指定的宽高来缩放图片，并按比例缩放文本坐标
 	Gui, KeyboardGui: +AlwaysOnTop -Caption +ToolWindow
-	Gui, KeyboardGui: Add, Picture, x0 y0, %keyboardImgPath%
+	Gui, KeyboardGui: +HwndhGui ; 创建了名为 hGui 的变量
+	Gui, KeyboardGui: Add, Picture, x0 y0 w%targetW% h%targetH%, %keyboardImgPath%
 
 	; 设置字体（加粗）
 	Gui, KeyboardGui: Font, s10 Bold, Segoe UI
 
-	; 在对应位置渲染映射名称（优先 name，否则使用 target）
+    ; 检测系统缩放（DPI）并记录，用于 GUI 渲染等处
+    detectedScale := GetDpiScale_AhkV1() ; TODO 按屏幕序号获取
+    Log("detected DPI scale: " detectedScale)
+
+	; 在对应位置渲染映射名称（优先 name，否则使用 target），坐标按 scale 缩放并考虑 DPI
 	for key, map in mappings
 	{
 		pos := keyboardPos[key]
 		if !IsObject(pos){
 			continue
-        }
+		}
 
 		text := map.name
 		if (text = ""){
 			text := map.target
-        }
+		}
 
-	; 根据系统 DPI 缩放系数调整坐标
-	posX := pos.x / detectedScale
-	posY := pos.y / detectedScale
+		; 根据系统 DPI 和缩放系数调整坐标
+		posX := Round((pos.x / detectedScale) * scale)
+		posY := Round((pos.y / detectedScale) * scale)
 
 		; 颜色解析：优先使用映射中的 color 字段
 		col := map.color
 		if (col = ""){
 			col := defaultColor
-        }else{
+		}else{
 			; 支持颜色名或直接 hex（去除可能的 #）
 			StringTrimLeft, tmp, col, 0
 			StringReplace, tmp, tmp, "#", "", All
 			; 若是名称映射，替换为 hex
 			if (colorMap.HasKey(ToLower(col))){
 				tmp := colorMap[ToLower(col)]
-            }
-            ; Log("color : " col " hex : " tmp)
+			}
 		}
 
-		; 限制文本宽度与高度，可根据需要调整；使用 c<hex> 设置颜色
 		Gui, KeyboardGui: Add, Text, x%posX% y%posY% w60 h20 +Center +BackgroundTrans c%tmp%, %text%
 	}
 
+	; 将 GUI 居中在目标显示器（水平与垂直居中）
+
+	newX := monLeft + Round((monRight - monLeft - targetW) / 2)
+	newY := monTop + Round((monBottom - monTop - targetH) / 2)
+    Log("target pos: " newX "x" newY)
+
+	; 将 GUI 移动并调整大小以匹配缩放后的图片
+	WinMove, ahk_id %hGui%, , %newX%, %newY%, %targetW%, %targetH%
 	Gui, KeyboardGui: Show
 	keyboardGuiShown := true
 }
@@ -255,10 +287,6 @@ hyperActive := False
 LoadMappings()
 
 Log("load config done")
-
-; 检测系统缩放（DPI）并记录，用于 GUI 渲染等处
-detectedScale := GetDpiScale_AhkV1()
-Log("detected DPI scale: " detectedScale)
 
 ; 目前为 a-z 和 0-9 注册热键(初始目标为字母和数字)。
 ; 这样可以避免对标点等特殊字符热键名的复杂转义。
