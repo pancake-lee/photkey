@@ -357,9 +357,7 @@ HandlePrintable:
 	}
 
 	map := mappings[k]
-	ShowToast(modifiers)
 	targetKey := map.target
-	Log("map " key " -> " modifiers targetKey)
 
 	; 如果 targetKey 自身包含修饰符前缀（+^! 之一或组合），且这些修饰符
 	; 已出现在当前按下的 modifiers 中，则从 targetKey 前缀中移除重复项，
@@ -387,9 +385,12 @@ HandlePrintable:
 				; 移除原前缀后拼接剩余部分
 				baseKey := RegExReplace(targetKey, "^[+^!]*", "")
 				targetKey := newTargetMods . baseKey
-				Log("dedup modifiers, new targetKey=" targetKey)
+				; Log("dedup modifiers, new targetKey=" targetKey)
 			}
 		}
+
+        Log("input " key " -> " modifiers targetKey)
+        ShowToast(modifiers targetKey)
 
 		; 发送目标键:保留修饰符,只替换基础键
 		if RegExMatch(targetKey, "^[A-Za-z0-9``\-\=\[\]\\;',\./]$")
