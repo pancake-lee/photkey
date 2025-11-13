@@ -34,8 +34,9 @@ ShowToast(text)
 ; Helper: trim whitespace and lowercase for AHK v1 compatibility
 TrimStr(s)
 {
-	if (s = "")
+	if (s = ""){
 		return ""
+    }
 	return RegExReplace(s, "^\s+|\s+$")
 }
 
@@ -71,9 +72,9 @@ LoadMappings()
 	Loop, Parse, content, `n`
 	{
 		line := A_LoopField
-		if (line = "")
+		if (line = ""){
 			continue
-
+        }
 		; Split line by comma into array-like variables
 		parts := []
 		Loop, Parse, line, `,
@@ -91,8 +92,9 @@ LoadMappings()
 		name := parts[6]
 		desc := parts[7]
 
-		if (trigger = "")
+		if (trigger = ""){
 			continue
+        }
 
 		key := SubStr(trigger, 1, 1)
 		key := TrimStr(key)
@@ -102,6 +104,50 @@ LoadMappings()
 
 	    Log("reg key mapping " trigger " -> " target)
 	}
+}
+
+; 构建并显示键盘映射 GUI（使用 keyboardImgPath 和 keyboardPos/mappings）
+BuildKeyboardGui()
+{
+	global keyboardImgPath, keyboardPos, mappings, tooltipDuration, keyboardGuiShown
+	if !FileExist(keyboardImgPath)
+	{
+		ShowToast("keyboard image not found")
+		Return
+	}
+
+	; 先销毁已有 GUI（如果有）
+	Gui, KeyboardGui: Destroy
+
+	; 创建无标题浮动窗口，图片为背景
+	Gui, KeyboardGui: +AlwaysOnTop -Caption +ToolWindow
+	Gui, KeyboardGui: Add, Picture, x0 y0, %keyboardImgPath%
+
+	; 设置字体
+	Gui, KeyboardGui: Font, s10, Segoe UI
+
+	; 在对应位置渲染映射名称（优先 name，否则使用 target）
+	for key, map in mappings
+	{
+		pos := keyboardPos[key]
+		if !IsObject(pos){
+			continue
+        }
+
+		text := map.name
+		if (text = ""){
+			text := map.target
+        }
+
+        posX := pos.x / 1.5
+        posY := pos.y / 1.5
+
+		; 限制文本宽度与高度，可根据需要调整
+		Gui, KeyboardGui: Add, Text, x%posX% y%posY% w60 h20 +Center +BackgroundTrans, %text%
+	}
+
+	Gui, KeyboardGui: Show
+	keyboardGuiShown := true
 }
 
 Log("mark func def done")
@@ -115,7 +161,7 @@ if !FileExist(appDataDir)
 {
 	FileCreateDir, %appDataDir%
 }
-logPath := appDataDir "\photkey.log"
+logPath := appDataDir "photkey.log"
 confPath := appDataDir "photkey.conf"
 
 mappings := {}
@@ -148,6 +194,37 @@ Loop, Parse, chars
     ; Log("reg chars key " ch)
 }
 
+; --------------------------------------------------
+; 实现F1唤出快捷键映射图
+keyboardImgPath := appDataDir "keyboard.jpeg"
+keyboardVec := [["`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="],["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "[", "]", "\\"],["A", "S", "D", "F", "G", "H", "J", "K", "L", ";", "'"],["Z", "X", "C", "V", "B", "N", "M", ",", ".", "/"]]
+keyboardStartPos:=[{x:32, y:17},{x:240, y:140},{x:267, y:263},{x:330, y:386}]
+keyboardInterval := 128
+keyboardPos := {}
+
+keyboardGuiShown := false ; GUI 控制状态
+
+; 初始化 keyboardPos：
+; 对于 keyboardVec 的每一行，使用 keyboardStartPos 对应元素作为起点，
+; 行内第一个键的坐标等于起点，后续键的 x 坐标按 keyboardInterval 递增。
+Loop, % keyboardVec.Length()
+{
+	rowIndex := A_Index
+	row := keyboardVec[rowIndex]
+	start := keyboardStartPos[rowIndex]
+
+	Loop, % row.Length()
+	{
+		col := A_Index
+		key := row[col]
+		; 计算坐标
+		posX := start.x + (col - 1) * keyboardInterval
+		posY := start.y
+		keyLower := ToLower(key)
+		keyboardPos[keyLower] := {x: posX, y: posY}
+	}
+}
+; --------------------------------------------------
 Log("Everything is ready.")
 
 ; --------------------------------------------------
@@ -165,16 +242,53 @@ CapsLock::
 	{
 		SetCapsLockState, Off
 		ShowToast("HyperKey OFF")
+        
+        if (keyboardGuiShown)
+        {
+            Gui, KeyboardGui: Destroy
+            keyboardGuiShown := false
+        }
 	}
 Return
 
-; 使用 Ctrl+Alt+R 重载脚本
-^!r::
-	Reload
+; Hyper + F1: 切换键盘映射面板
+$F1::
+	if !hyperActive
+	{
+		SendInput, {F1}
+		Return
+	}
+
+	if (!keyboardGuiShown)
+	{
+		BuildKeyboardGui()
+	}
+	else
+	{
+		Gui, KeyboardGui: Destroy
+		keyboardGuiShown := false
+	}
 Return
 
-; 使用 Ctrl+Alt+Q 退出脚本
-^!q::ExitApp
+; Esc: 如果键盘 GUI 打开则关闭它，否则发送普通 Esc
+$Esc::
+	if !hyperActive
+	{
+		SendInput, {Esc}
+		Return
+	}
+
+	if (keyboardGuiShown)
+	{
+		Gui, KeyboardGui: Destroy
+		keyboardGuiShown := false
+		Return
+	}
+	; 否则传递普通 Esc
+	SendInput, {Esc}
+Return
+
+
 
 ; --------------------------------------------------
 ; 标签定义
@@ -190,11 +304,11 @@ HandlePrintable:
     ; 提取实际按键(去除修饰符)
 	actualKey := RegExReplace(key, "^[+^!]*", "")
 	
+    ; 未处于 HyperKey 状态:直接发送原始按键，包含修饰符
 	if !hyperActive
 	{
-		; 未处于 HyperKey 状态:直接发送原始按键(包含修饰符)
     	; Log("origin " key)
-		SendInput, %key%
+		SendInput, {Blind}%actualKey%
 		Return
 	}
 
