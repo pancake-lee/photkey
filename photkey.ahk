@@ -75,10 +75,24 @@ LoadMappings()
 		if (line = ""){
 			continue
         }
+        ; Log("loading : " line)
+
 		; Split line by comma into array-like variables
 		parts := []
 		Loop, Parse, line, `,
 			parts.Push(A_LoopField)
+
+		; 恢复占位符为真实逗号（先读到临时变量，替换后写回）
+		Loop, % parts.Length()
+		{
+			idx := A_Index
+            if (parts[idx] = "COMMA"){
+                ; Log("loading parts found [" idx "] = " parts[idx])
+                parts[idx] := ","
+            }
+
+            ; Log("loading parts [" idx "] = " parts[idx])
+		}
 
 		; ensure at least 8 parts (新增 color 列：shift,ctrl,alt,trigger,target,name,color,desc)
 		Loop, % 8 - parts.Length()
@@ -110,7 +124,7 @@ LoadMappings()
 ; 构建并显示键盘映射 GUI（使用 keyboardImgPath 和 keyboardPos/mappings）
 BuildKeyboardGui()
 {
-	global keyboardImgPath, keyboardPos, mappings, tooltipDuration, keyboardGuiShown
+	global keyboardImgPath, keyboardPos, mappings, tooltipDuration, keyboardGuiShown, colorMap, defaultColor
 	if !FileExist(keyboardImgPath)
 	{
 		ShowToast("keyboard image not found")
@@ -155,6 +169,7 @@ BuildKeyboardGui()
 			if (colorMap.HasKey(ToLower(col))){
 				tmp := colorMap[ToLower(col)]
             }
+            ; Log("color : " col " hex : " tmp)
 		}
 
 		; 限制文本宽度与高度，可根据需要调整；使用 c<hex> 设置颜色
@@ -183,7 +198,7 @@ mappings := {}
 tooltipDuration := 3000 ; ms
 
 ; 颜色映射（名称 -> 十六进制 RGB，无 #）
-colorMap := {"red":"FF0000", "green":"00AA00", "blue":"0000FF", "yellow":"FFD700", "white":"FFFFFF", "black":"000000", "orange":"FFA500"}
+colorMap := {"red":"E61C5D", "green":"99CC33", "blue":"00BBF0", "yellow":"FFBD39", "black":"000000", "pink":"E6A4B4"}
 defaultColor := "FFFFFF"
 
 SetCapsLockState, Off
@@ -196,7 +211,8 @@ Log("load config done")
 
 ; 目前为 a-z 和 0-9 注册热键(初始目标为字母和数字)。
 ; 这样可以避免对标点等特殊字符热键名的复杂转义。
-chars := "abcdefghijklmnopqrstuvwxyz0123456789"
+; 包括字母、数字与常用符号（支持 - = [ ] \ ; ' , . / 和 `）
+chars := "abcdefghijklmnopqrstuvwxyz0123456789`-=[]\;',./"
 ; chars := "j"
 ; 修饰键组合列表(* 通配符在 Hotkey 命令中不起作用,需要显式注册)
 modifiers := ["", "+", "^", "!", "+^", "+!", "^!", "+^!"]
@@ -342,21 +358,46 @@ HandlePrintable:
 
 	map := mappings[k]
 	ShowToast(modifiers)
-    Log("map " key " -> " modifiers map.target)
+	targetKey := map.target
+	Log("map " key " -> " modifiers targetKey)
 
-	; 发送目标键:保留修饰符,只替换基础键
-	if (map.target != "")
+	; 如果 targetKey 自身包含修饰符前缀（+^! 之一或组合），且这些修饰符
+	; 已出现在当前按下的 modifiers 中，则从 targetKey 前缀中移除重复项，
+	; 避免发送时重复修饰符。例如: modifiers="^" 且 targetKey = "^s" -> targetKey="s"
+	if (targetKey != "")
 	{
-		targetKey := map.target
-		; 如果目标是单字符(字母或数字),直接发送
-		if RegExMatch(targetKey, "^[A-Za-z0-9]$")
+		; 提取 targetKey 的修饰符前缀
+		targetMods := RegExReplace(targetKey, "[^+^!].*$", "")
+		; 如果都为空则无修饰符
+		if (targetMods != "")
 		{
-			; 保留修饰符,发送 修饰符+目标键
+			; 对每个可能的修饰符进行检查，如果 modifiers 已包含该修饰符，则从 targetMods 中移除
+			; 注意 AHK 中修饰符表示: + (Shift), ^ (Ctrl), ! (Alt)
+			newTargetMods := targetMods
+			if (InStr(modifiers, "+") && InStr(newTargetMods, "+"))
+				StringReplace, newTargetMods, newTargetMods, +, , All
+			if (InStr(modifiers, "^") && InStr(newTargetMods, "^"))
+				StringReplace, newTargetMods, newTargetMods, ^, , All
+			if (InStr(modifiers, "!") && InStr(newTargetMods, "!"))
+				StringReplace, newTargetMods, newTargetMods, !, , All
+
+			; 将处理后的修饰符拼回 targetKey 的主体
+			if (newTargetMods != targetMods)
+			{
+				; 移除原前缀后拼接剩余部分
+				baseKey := RegExReplace(targetKey, "^[+^!]*", "")
+				targetKey := newTargetMods . baseKey
+				Log("dedup modifiers, new targetKey=" targetKey)
+			}
+		}
+
+		; 发送目标键:保留修饰符,只替换基础键
+		if RegExMatch(targetKey, "^[A-Za-z0-9``\-\=\[\]\\;',\./]$")
+		{
 			SendInput, % modifiers . targetKey
 		}
 		else
 		{
-			; 特殊键(如 Left、Up、Enter),用大括号包裹,并保留修饰符
 			SendInput, % modifiers . "{" . targetKey . "}"
 		}
 	}
