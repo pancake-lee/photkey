@@ -180,12 +180,49 @@ BuildKeyboardGui()
 	; 先销毁已有 GUI（如果有）
 	Gui, KeyboardGui: Destroy
 
+
+    ; 获取主显示器索引和值（MonitorPrimary 返回主显示器编号）
+    SysGet, primIndex, MonitorPrimary
+    ; 读取主显示器的工作区到 primLeft/primTop/primRight/primBottom
+    SysGet, prim, MonitorWorkArea, %primIndex%
+    Log("primary monitor[" primIndex "] work area [" primLeft "," primTop "," primRight "," primBottom "]")
+
 	; 获取监视器数量并选择目标监视器（优先第二屏，有则用 2，否则用 1）
 	SysGet, monCount, MonitorCount
 	if (monCount >= 2)
-		SysGet, mon, MonitorWorkArea, 1
+	{
+		; 获取鼠标位置，判断鼠标是否在主显示器工作区内
+        CoordMode, Mouse, Screen
+		MouseGetPos, mx, my
+        Log("mouse pos: " mx "x" my)
+		if (mx >= primLeft && mx <= primRight && my >= primTop && my <= primBottom)
+		{
+			; 鼠标在主屏上，若存在第二屏则使用第二屏，还要考虑主屏不是1的情况
+            if primIndex = 1
+                targetMonIndex := 2
+            else
+                targetMonIndex := 1
+
+			SysGet, mon, MonitorWorkArea, %targetMonIndex%
+            Log("monitor[" targetMonIndex "] work area [" monLeft "," monTop "," monRight "," monBottom "] " monWidth "x" monHeight)
+		}
+		else
+		{
+			; 鼠标不在主屏，使用主屏
+			monLeft := primLeft
+			monTop := primTop
+			monRight := primRight
+			monBottom := primBottom
+		}
+	}
 	else
-		SysGet, mon, MonitorWorkArea, 2
+	{
+        ; 只有一块显示器，使用主屏
+        monLeft := primLeft
+        monTop := primTop
+        monRight := primRight
+        monBottom := primBottom
+	}
 
     ; 显示原始大小
     origW := 1920
@@ -254,8 +291,8 @@ BuildKeyboardGui()
     Log("target pos: " newX "x" newY)
 
 	; 将 GUI 移动并调整大小以匹配缩放后的图片
-	WinMove, ahk_id %hGui%, , %newX%, %newY%, %targetW%, %targetH%
-	Gui, KeyboardGui: Show
+	; 有时 WinMove 对新创建的无边框 GUI 不生效，改用 Gui Show 指定 x/y/w/h 更可靠
+	Gui, KeyboardGui: Show, NoActivate x%newX% y%newY% w%targetW% h%targetH%
 	keyboardGuiShown := true
 }
 
