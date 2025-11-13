@@ -1,3 +1,5 @@
+# 主要功能
+
 - 映射caps（则大写键）作为“HyperKey”
   - 未进入“HyperKey”时，键盘按正常功能运作
   - 进入“HyperKey”状态后
@@ -21,7 +23,7 @@
       - 描述, 可选
   - 暂时不用提供配置界面，先手动维护
 
-语法备忘
+# 语法备忘
 
 - 直接声明热键（脚本中常见）
   - 形式：a::Label 或 ^!r::Reload
@@ -37,3 +39,24 @@
 - $（避免递归）：防止热键内部 Send 导致自身再次触发。
 - 单字符热键（例如 i::）会拦截该键并阻止它原本的输入（除非使用 ~）。
 - {Blind}指保持修饰键：SendInput, {Blind}%key%
+- 提示类型
+  * **ToolTip** : 简单、轻量的浮动文本，适合短时提示。
+    * 用法：`ToolTip, Text` / `ToolTip`（清除）。
+    * 特点：无窗口边框、自动跟随鼠标（也可指定坐标），需要手动设置定时器清除；对多语言文本支持良好。
+  * **TrayTip** : 系统托盘通知气泡，显示在任务栏托盘区域上方。
+    * 用法：`TrayTip, Title, Text, Seconds, IconNumber`。
+    * 特点：更明显、系统级样式；支持持续时间和图标；在某些 Windows 版本上会被系统通知聚合或限制显示频率。
+  * **MsgBox** : 模态对话框，带按钮（OK/Yes/No 等），用于需要用户确认的情况。
+    * 用法：`MsgBox, Options, Title, Text`。
+    * 特点：会阻塞脚本直到用户响应；适合重要提示或确认操作，不适合短暂提示。
+  * **SplashImage / SplashTextOn** : 更自由的临时显示窗口（文本或图像）。
+    * 用法（文字）：`SplashTextOn, Width, Height, Title, Text` / `SplashTextOff`。
+    * 特点：可控制尺寸和外观，适合显示较多文本或更显著的提示；也需要手动关闭。
+  * **BalloonTip（通过 COM / Shell 对象）** : 通过 Windows Shell 弹出气泡（在旧版 AHK 示例中常见）。
+    * 用法：使用 COM 调用 `Shell_TrayWnd` 或 `Shell.Application`（较复杂）。
+    * 特点：外观更贴合系统通知，可做富文本/图标，但实现复杂且在最新 Windows 通知中心下行为不一。
+  * **自定义 GUI（Gui 命令）** : 创建一个完全自定义的窗口，用于复杂交互或漂亮提示。
+    * 用法：`Gui, Add, Text, ...` / `Gui, Show`。
+    * 特点：最灵活，可布局控件、按钮、图片；适合需要交互或固定位置的提示，但实现和维护成本较高。
+  * **Sound / TrayIcon 变化 / 震动（SendMessage）等辅助反馈** :
+    * 说明：不是文本提示，但常与提示结合使用。比如 `SoundBeep`, 修改托盘图标或通过 `DllCall` 做系统级效果。

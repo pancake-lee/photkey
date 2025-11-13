@@ -1,6 +1,6 @@
 ; photkey.ahk
 ; AHK v1 脚本，实现一个简单的 HyperKey（使用 CapsLock）。
-; - 从 D:\nycko\code\photkey\photkey.conf 读取映射（CSV 风格，逗号分隔）。
+; - 从 %UserProfile%\photkey\photkey.conf 读取映射（CSV 风格，逗号分隔）。
 ; - 在 HyperKey 激活时，拦截可打印键（字母、数字、标点），并根据配置重映射到目标 AHK 键；若有映射则发送目标键。
 ; - 显示短暂提示（ToolTip）以显示映射名称或相关信息。
 ; - 若无映射，则短暂显示“无影射快捷键”。
@@ -12,8 +12,9 @@
 ;   示例： ,,,i,Up,ArrowUp,
 ; - 为简单起见，脚本在启动时读取一次配置。
 
-; 日志输出路径(用于替换 TrayTip 调试输出)
-logPath := A_AppData "\photkey\photkey.log"
+; --------------------------------------------------
+; 函数定义
+; --------------------------------------------------
 
 ; 简单日志函数:将时间戳与 msg 写入日志文件
 Log(msg)
@@ -22,20 +23,6 @@ Log(msg)
 	FormatTime, t, %A_Now%, yyyy-MM-dd HH:mm:ss
 	FileAppend, % t " - " msg "`n", %logPath%
 }
-; --------------------------------------------------
-; 变量定义
-confPath := A_AppData "\photkey\photkey.conf"
-tooltipDuration := 3000 ; ms
-
-; 映射表：key => 包含 target、name、shift/ctrl/alt 字段的对象
-mappings := {}
-
-; HyperKey 状态标志
-hyperActive := false
-
-Log("mark var def done")
-; --------------------------------------------------
-; 函数定义
 ; Helper: show transient tooltip centered near mouse
 ShowToast(text)
 {
@@ -66,19 +53,19 @@ LoadMappings()
 	mappings := {}
 	if !FileExist(confPath)
 	{
-		Log("配置文件未找到: " confPath)
+		Log("conf not found: " confPath)
 		return
 	}
 
 	FileRead, content, %confPath%
 	if ErrorLevel
 	{
-		Log("无法读取配置文件: " confPath)
+		Log("conf not found: " confPath)
 		return
 	}
 
 	; Normalize line endings and iterate lines
-	StringReplace, content, content, `r`n, `n`, All
+	StringReplace, content, content, `r`n, `n`, All ; 有点问题，CRLF会丢配置
 	StringReplace, content, content, `r`, `n`, All
 
 	Loop, Parse, content, `n`
@@ -113,17 +100,29 @@ LoadMappings()
 
 		mappings[key] := {target: target, name: name, shift: shift, ctrl: ctrl, alt: alt}
 
-	    Log(name)
+	    Log("reg key mapping " trigger " -> " target)
 	}
 }
 
 Log("mark func def done")
+
 ; --------------------------------------------------
 ; 主程序
 
-; 初始化设置
-SetCapsLockState, AlwaysOff  ; 禁用 CapsLock 的大写锁定功能
-hyperActive := false          ; 确保 HyperKey 初始状态为关闭
+; 确保 AppData 下的 photkey 目录存在，并定义日志/配置路径
+appDataDir := A_AppData "\..\..\photkey\"
+if !FileExist(appDataDir)
+{
+	FileCreateDir, %appDataDir%
+}
+logPath := appDataDir "\photkey.log"
+confPath := appDataDir "photkey.conf"
+
+mappings := {}
+tooltipDuration := 3000 ; ms
+
+SetCapsLockState, Off
+hyperActive := False
 
 ; 载入映射
 LoadMappings()
@@ -148,18 +147,26 @@ Loop, Parse, chars
 	}
     ; Log("reg chars key " ch)
 }
-Log("reg chars keys done")
+
+Log("Everything is ready.")
 
 ; --------------------------------------------------
 ;   
 ; 使用 CapsLock 作为 HyperKey 切换
+; 保持 CapsLock 指示灯用于显示 HyperKey 状态
 CapsLock::
 	hyperActive := !hyperActive
 	if (hyperActive)
+	{
+		SetCapsLockState, On
 		ShowToast("HyperKey ON")
+	}
 	else
+	{
+		SetCapsLockState, Off
 		ShowToast("HyperKey OFF")
-	Return
+	}
+Return
 
 ; 使用 Ctrl+Alt+R 重载脚本
 ^!r::
@@ -186,7 +193,7 @@ HandlePrintable:
 	if !hyperActive
 	{
 		; 未处于 HyperKey 状态:直接发送原始按键(包含修饰符)
-    	Log("origin " key)
+    	; Log("origin " key)
 		SendInput, %key%
 		Return
 	}
