@@ -31,6 +31,52 @@ ShowToast(text)
 	SetTimer, RemoveTooltip, -%tooltipDuration%
 }
 
+; 获取主显示器 DPI 缩放倍率 (AHK v1)
+; 返回值示例: 1.0 (100%), 1.25 (125%), 2.0 (200%)
+GetDpiScale_AhkV1()
+{
+	; 尝试使用 Shcore.dll 的 GetDpiForMonitor (Windows 8.1+)
+	; MonitorFromPoint 返回 HMONITOR
+	VarSetCapacity(mi, 40, 0)
+	hMon := DllCall("MonitorFromPoint", "int64", 0, "uint", 2, "ptr")
+	dpiX := 96
+	dpiY := 96
+	; 默认回退为系统 DPI (A_ScreenDPI)
+	sysDpi := A_ScreenDPI
+	ret := 1.0
+	; 尝试调用 GetDpiForMonitor (Windows 8.1+)
+	h := DllCall("LoadLibrary", "Str", "Shcore.dll")
+	if (h != 0)
+	{
+		; typedef HRESULT GetDpiForMonitor(HMONITOR, MONITOR_DPI_TYPE, UINT*, UINT*);
+		; MONITOR_DPI_TYPE 0 = MDT_EFFECTIVE_DPI
+		if (DllCall("Shcore.dll\GetDpiForMonitor", "ptr", hMon, "int", 0, "uint*", dpiX, "uint*", dpiY) = 0)
+		{
+			ret := dpiX / 96.0
+			DllCall("FreeLibrary", "ptr", h)
+			goto done
+		}
+		DllCall("FreeLibrary", "ptr", h)
+	}
+
+	; 如果不存在 Shcore 或调用失败，尝试使用 GetDeviceCaps
+	hDC := DllCall("GetDC", "uint", 0, "ptr")
+	if (hDC)
+	{
+		; LOGPIXELSX = 88
+		dpiX := DllCall("gdi32.dll\GetDeviceCaps", "ptr", hDC, "int", 88)
+		DllCall("ReleaseDC", "uint", 0, "ptr", hDC)
+		if (dpiX && dpiX > 0)
+			ret := dpiX / 96.0
+	}
+
+done:
+	; 确保返回至少 1.0
+	if (ret < 1.0)
+		ret := 1.0
+	return ret
+}
+
 ; Helper: trim whitespace and lowercase for AHK v1 compatibility
 TrimStr(s)
 {
@@ -124,7 +170,7 @@ LoadMappings()
 ; 构建并显示键盘映射 GUI（使用 keyboardImgPath 和 keyboardPos/mappings）
 BuildKeyboardGui()
 {
-	global keyboardImgPath, keyboardPos, mappings, tooltipDuration, keyboardGuiShown, colorMap, defaultColor
+	global keyboardImgPath, keyboardPos, mappings, tooltipDuration, keyboardGuiShown, colorMap, defaultColor, detectedScale
 	if !FileExist(keyboardImgPath)
 	{
 		ShowToast("keyboard image not found")
@@ -154,8 +200,9 @@ BuildKeyboardGui()
 			text := map.target
         }
 
-        posX := pos.x / 1.5
-        posY := pos.y / 1.5
+	; 根据系统 DPI 缩放系数调整坐标
+	posX := pos.x / detectedScale
+	posY := pos.y / detectedScale
 
 		; 颜色解析：优先使用映射中的 color 字段
 		col := map.color
@@ -208,6 +255,10 @@ hyperActive := False
 LoadMappings()
 
 Log("load config done")
+
+; 检测系统缩放（DPI）并记录，用于 GUI 渲染等处
+detectedScale := GetDpiScale_AhkV1()
+Log("detected DPI scale: " detectedScale)
 
 ; 目前为 a-z 和 0-9 注册热键(初始目标为字母和数字)。
 ; 这样可以避免对标点等特殊字符热键名的复杂转义。
