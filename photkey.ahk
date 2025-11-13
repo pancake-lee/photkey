@@ -80,8 +80,8 @@ LoadMappings()
 		Loop, Parse, line, `,
 			parts.Push(A_LoopField)
 
-		; ensure at least 7 parts
-		Loop, % 7 - parts.Length()
+		; ensure at least 8 parts (新增 color 列：shift,ctrl,alt,trigger,target,name,color,desc)
+		Loop, % 8 - parts.Length()
 			parts.Push("")
 
 		shift := parts[1]
@@ -90,7 +90,8 @@ LoadMappings()
 		trigger := parts[4]
 		target := parts[5]
 		name := parts[6]
-		desc := parts[7]
+		color := parts[7]
+		desc := parts[8]
 
 		if (trigger = ""){
 			continue
@@ -100,7 +101,7 @@ LoadMappings()
 		key := TrimStr(key)
 		key := ToLower(key)
 
-		mappings[key] := {target: target, name: name, shift: shift, ctrl: ctrl, alt: alt}
+		mappings[key] := {target: target, name: name, color: color, shift: shift, ctrl: ctrl, alt: alt}
 
 	    Log("reg key mapping " trigger " -> " target)
 	}
@@ -123,8 +124,8 @@ BuildKeyboardGui()
 	Gui, KeyboardGui: +AlwaysOnTop -Caption +ToolWindow
 	Gui, KeyboardGui: Add, Picture, x0 y0, %keyboardImgPath%
 
-	; 设置字体
-	Gui, KeyboardGui: Font, s10, Segoe UI
+	; 设置字体（加粗）
+	Gui, KeyboardGui: Font, s10 Bold, Segoe UI
 
 	; 在对应位置渲染映射名称（优先 name，否则使用 target）
 	for key, map in mappings
@@ -142,8 +143,22 @@ BuildKeyboardGui()
         posX := pos.x / 1.5
         posY := pos.y / 1.5
 
-		; 限制文本宽度与高度，可根据需要调整
-		Gui, KeyboardGui: Add, Text, x%posX% y%posY% w60 h20 +Center +BackgroundTrans, %text%
+		; 颜色解析：优先使用映射中的 color 字段
+		col := map.color
+		if (col = ""){
+			col := defaultColor
+        }else{
+			; 支持颜色名或直接 hex（去除可能的 #）
+			StringTrimLeft, tmp, col, 0
+			StringReplace, tmp, tmp, "#", "", All
+			; 若是名称映射，替换为 hex
+			if (colorMap.HasKey(ToLower(col))){
+				tmp := colorMap[ToLower(col)]
+            }
+		}
+
+		; 限制文本宽度与高度，可根据需要调整；使用 c<hex> 设置颜色
+		Gui, KeyboardGui: Add, Text, x%posX% y%posY% w60 h20 +Center +BackgroundTrans c%tmp%, %text%
 	}
 
 	Gui, KeyboardGui: Show
@@ -166,6 +181,10 @@ confPath := appDataDir "photkey.conf"
 
 mappings := {}
 tooltipDuration := 3000 ; ms
+
+; 颜色映射（名称 -> 十六进制 RGB，无 #）
+colorMap := {"red":"FF0000", "green":"00AA00", "blue":"0000FF", "yellow":"FFD700", "white":"FFFFFF", "black":"000000", "orange":"FFA500"}
+defaultColor := "FFFFFF"
 
 SetCapsLockState, Off
 hyperActive := False
