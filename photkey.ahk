@@ -33,7 +33,7 @@ ShowToast(text)
 
 ; 获取主显示器 DPI 缩放倍率 (AHK v1)
 ; 返回值示例: 1.0 (100%), 1.25 (125%), 2.0 (200%)
-GetDpiScale_AhkV1()
+GetDpiScale_AhkV1(targetMonIndex)
 {
 	; 尝试使用 Shcore.dll 的 GetDpiForMonitor (Windows 8.1+)
 	; MonitorFromPoint 返回 HMONITOR
@@ -170,7 +170,7 @@ LoadMappings()
 ; 构建并显示键盘映射 GUI（使用 keyboardImgPath 和 keyboardPos/mappings）
 BuildKeyboardGui()
 {
-	global keyboardImgPath, keyboardPos, mappings, tooltipDuration, keyboardGuiShown, colorMap, defaultColor
+	global keyboardImgPath, keyboardPos, mappings, tooltipDuration, keyboardGuiShown, colorMap, defaultColor, keyboardKeyW
 	if !FileExist(keyboardImgPath)
 	{
 		ShowToast("keyboard image not found")
@@ -180,9 +180,9 @@ BuildKeyboardGui()
 	; 先销毁已有 GUI（如果有）
 	Gui, KeyboardGui: Destroy
 
-
     ; 获取主显示器索引和值（MonitorPrimary 返回主显示器编号）
     SysGet, primIndex, MonitorPrimary
+    targetMonIndex := primIndex
     ; 读取主显示器的工作区到 primLeft/primTop/primRight/primBottom
     SysGet, prim, MonitorWorkArea, %primIndex%
     Log("primary monitor[" primIndex "] work area [" primLeft "," primTop "," primRight "," primBottom "]")
@@ -204,7 +204,6 @@ BuildKeyboardGui()
                 targetMonIndex := 1
 
 			SysGet, mon, MonitorWorkArea, %targetMonIndex%
-            Log("monitor[" targetMonIndex "] work area [" monLeft "," monTop "," monRight "," monBottom "] " monWidth "x" monHeight)
 		}
 		else
 		{
@@ -224,6 +223,7 @@ BuildKeyboardGui()
         monBottom := primBottom
 	}
 
+
     ; 显示原始大小
     origW := 1920
     origH := 500
@@ -231,24 +231,29 @@ BuildKeyboardGui()
 	; 目标宽度为目标显示器工作区宽的 80%
 	monWidth := monRight - monLeft
     monHeight := monBottom - monTop
-    Log("monitor work area [" monLeft "," monTop "," monRight "," monBottom "] " monWidth "x" monHeight)
+    Log("monitor[" targetMonIndex "] work area [" monLeft "," monTop "," monRight "," monBottom "] " monWidth "x" monHeight)
 
 	targetW := Round(monWidth * 0.8)
 	scale := targetW / origW
 	targetH := Round(origH * scale)
+    
     Log("target size: " targetW "x" targetH)
 
 	; 重新创建 GUI，使用指定的宽高来缩放图片，并按比例缩放文本坐标
 	Gui, KeyboardGui: +AlwaysOnTop -Caption +ToolWindow
 	Gui, KeyboardGui: +HwndhGui ; 创建了名为 hGui 的变量
-	Gui, KeyboardGui: Add, Picture, x0 y0 w%targetW% h%targetH%, %keyboardImgPath%
+
+	; 检测系统缩放（DPI）并记录，用于 GUI 渲染等处（按目标显示器索引）
+	detectedScale := GetDpiScale_AhkV1(targetMonIndex)
+    Log("detected DPI scale: " detectedScale)
+
+    picW := Round(targetW / detectedScale)
+    picH := Round(targetH / detectedScale)
+    Log("pic size: " picW "x" picH)
+	Gui, KeyboardGui: Add, Picture, x0 y0 w%picW% h%picH%, %keyboardImgPath%
 
 	; 设置字体（加粗）
 	Gui, KeyboardGui: Font, s10 Bold, Segoe UI
-
-    ; 检测系统缩放（DPI）并记录，用于 GUI 渲染等处
-    detectedScale := GetDpiScale_AhkV1() ; TODO 按屏幕序号获取
-    Log("detected DPI scale: " detectedScale)
 
 	; 在对应位置渲染映射名称（优先 name，否则使用 target），坐标按 scale 缩放并考虑 DPI
 	for key, map in mappings
@@ -281,18 +286,27 @@ BuildKeyboardGui()
 			}
 		}
 
-		Gui, KeyboardGui: Add, Text, x%posX% y%posY% w60 h20 +Center +BackgroundTrans c%tmp%, %text%
+        posX := posX + keyboardKeyW *0.2
+        posY := posY + keyboardKeyW *0.1
+        textW := keyboardKeyW * 0.8
+        textH := keyboardKeyW * 0.3
+		Gui, KeyboardGui: Add, Text, x%posX% y%posY% w%textW% h%textH% +Center +BackgroundTrans c%tmp%, %text%
 	}
 
 	; 将 GUI 居中在目标显示器（水平与垂直居中）
 
 	newX := monLeft + Round((monRight - monLeft - targetW) / 2)
 	newY := monTop + Round((monBottom - monTop - targetH) / 2)
-    Log("target pos: " newX "x" newY)
+
+
+    ; newX := Round(newX / detectedScale)
+    ; newY := Round(newY / detectedScale)
+
+    Log("target pos: [" newX "," newY "," newX+targetW "," newY+targetH "] size: " targetW "x" targetH)
 
 	; 将 GUI 移动并调整大小以匹配缩放后的图片
 	; 有时 WinMove 对新创建的无边框 GUI 不生效，改用 Gui Show 指定 x/y/w/h 更可靠
-	Gui, KeyboardGui: Show, NoActivate x%newX% y%newY% w%targetW% h%targetH%
+	Gui, KeyboardGui: Show, NoActivate x%newX% y%newY% w%picW% h%picH%
 	keyboardGuiShown := true
 }
 
@@ -350,7 +364,8 @@ Loop, Parse, chars
 keyboardImgPath := appDataDir "keyboard.jpeg"
 keyboardVec := [["`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="],["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "[", "]", "\\"],["A", "S", "D", "F", "G", "H", "J", "K", "L", ";", "'"],["Z", "X", "C", "V", "B", "N", "M", ",", ".", "/"]]
 keyboardStartPos:=[{x:32, y:17},{x:240, y:140},{x:267, y:263},{x:330, y:386}]
-keyboardInterval := 128
+keyboardInterval := 128 ; 两个按键间（左上到左上）的水平间距
+keyboardKeyW := 90 ; 一个按键的宽度
 keyboardPos := {}
 
 keyboardGuiShown := false ; GUI 控制状态
