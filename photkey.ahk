@@ -166,15 +166,25 @@ LoadMappings()
 ; 构建并显示键盘映射 GUI（使用 keyboardImgPath 和 keyboardPos/mappings）
 BuildKeyboardGui()
 {
-	global keyboardImgPath, keyboardPos, mappings, tooltipDuration, keyboardGuiShown, colorMap, defaultColor, keyboardKeyW
+	; 先销毁已有 GUI（如果有）
+	CloseKeyboardGui()
+
+	global keyboardImgPath, keyboardPos, mappings, tooltipDuration, keyboardGuiShown, colorMap, defaultColor, keyboardKeyW, overlayShown
+
 	if !FileExist(keyboardImgPath)
 	{
 		ShowToast("keyboard image not found")
 		Return
 	}
 
-	; 先销毁已有 GUI（如果有）
-	Gui, KeyboardGui: Destroy
+	; 创建并显示遮罩 OverlayGui（带 hwnd 以便精确设置透明度）
+	Gui, OverlayGui: -Caption +ToolWindow -DPIScale +HwndhOverlay
+	Gui, OverlayGui: Color, 000000
+	Gui, OverlayGui: Show, NoActivate x%monLeft% y%monTop% w%monWidth% h%monHeight%
+	; 使用 hOverlay 精确设置透明度
+	if (hOverlay)
+		WinSet, Transparent, 200, ahk_id %hOverlay%
+	overlayShown := true
 
     ; 获取主显示器索引和值（MonitorPrimary 返回主显示器编号）
     SysGet, primIndex, MonitorPrimary
@@ -283,12 +293,29 @@ BuildKeyboardGui()
 	newY := monTop + Round((monBottom - monTop - targetH) / 2)
     Log("target pos: [" newX "," newY "," newX+targetW "," newY+targetH "] front["  frontSize "] size: [" targetW "x" targetH "]")
 
-    ; NoActivate 避免抢焦点
+
+	; NoActivate 避免抢焦点
 	Gui, KeyboardGui: Show, NoActivate x%newX% y%newY% w%targetW% h%targetH%
 	keyboardGuiShown := true
 }
 
 Log("mark func def done")
+
+; 统一关闭键盘 GUI 与遮罩
+CloseKeyboardGui()
+{
+	global keyboardGuiShown, overlayShown
+	; 如果键盘 GUI 存在则销毁
+	Gui, KeyboardGui: Destroy
+	keyboardGuiShown := false
+
+	; 销毁遮罩（若存在）
+	if (overlayShown)
+	{
+		Gui, OverlayGui: Destroy
+		overlayShown := false
+	}
+}
 
 ; --------------------------------------------------
 ; 主程序
@@ -349,6 +376,7 @@ keyboardKeyW := 90 ; 一个按键的宽度
 keyboardPos := {}
 
 keyboardGuiShown := false ; GUI 控制状态
+overlayShown := false
 
 ; 初始化 keyboardPos：
 ; 对于 keyboardVec 的每一行，使用 keyboardStartPos 对应元素作为起点，
@@ -388,12 +416,11 @@ CapsLock::
 	{
 		SetCapsLockState, Off
 		ShowToast("HyperKey OFF")
-        
-        if (keyboardGuiShown)
-        {
-            Gui, KeyboardGui: Destroy
-            keyboardGuiShown := false
-        }
+    
+	if (keyboardGuiShown)
+	{
+		CloseKeyboardGui()
+	}
 	}
 Return
 
@@ -411,8 +438,7 @@ $F1::
 	}
 	else
 	{
-		Gui, KeyboardGui: Destroy
-		keyboardGuiShown := false
+		CloseKeyboardGui()
 	}
 Return
 
@@ -426,8 +452,7 @@ $Esc::
 
 	if (keyboardGuiShown)
 	{
-		Gui, KeyboardGui: Destroy
-		keyboardGuiShown := false
+		CloseKeyboardGui()
 		Return
 	}
 	; 否则传递普通 Esc
@@ -450,15 +475,15 @@ HandlePrintable:
     ; 提取实际按键(去除修饰符)
 	actualKey := RegExReplace(key, "^[+^!]*", "")
 	
-    ; 未处于 HyperKey 状态:直接发送原始按键，包含修饰符
-	if !hyperActive
-	{
-    	; Log("origin " key)
-		SendInput, {Blind}%actualKey%
-		Return
-	}
 
-	; 处于 HyperKey:检查映射(忽略修饰符,只看实际按键)
+    ; 未处于 HyperKey 状态:直接发送原始按键，包含修饰符
+    if !hyperActive
+    {
+        SendInput, {Blind}%actualKey%
+        Return
+    }
+
+    ; 处于 HyperKey:检查映射(忽略修饰符,只看实际按键)
 	k := ToLower(actualKey)
 	if (mappings[k] = "")
 	{
@@ -467,8 +492,8 @@ HandlePrintable:
 		Return
 	}
 
-	map := mappings[k]
-	targetKey := map.target
+    map := mappings[k]
+    targetKey := map.target
 
 	; 如果 targetKey 自身包含修饰符前缀（+^! 之一或组合），且这些修饰符
 	; 已出现在当前按下的 modifiers 中，则从 targetKey 前缀中移除重复项，
