@@ -31,52 +31,6 @@ ShowToast(text)
 	SetTimer, RemoveTooltip, -%tooltipDuration%
 }
 
-; 获取主显示器 DPI 缩放倍率 (AHK v1)
-; 返回值示例: 1.0 (100%), 1.25 (125%), 2.0 (200%)
-GetDpiScale_AhkV1(targetMonIndex)
-{
-	; 尝试使用 Shcore.dll 的 GetDpiForMonitor (Windows 8.1+)
-	; MonitorFromPoint 返回 HMONITOR
-	VarSetCapacity(mi, 40, 0)
-	hMon := DllCall("MonitorFromPoint", "int64", 0, "uint", 2, "ptr")
-	dpiX := 96
-	dpiY := 96
-	; 默认回退为系统 DPI (A_ScreenDPI)
-	sysDpi := A_ScreenDPI
-	ret := 1.0
-	; 尝试调用 GetDpiForMonitor (Windows 8.1+)
-	h := DllCall("LoadLibrary", "Str", "Shcore.dll")
-	if (h != 0)
-	{
-		; typedef HRESULT GetDpiForMonitor(HMONITOR, MONITOR_DPI_TYPE, UINT*, UINT*);
-		; MONITOR_DPI_TYPE 0 = MDT_EFFECTIVE_DPI
-		if (DllCall("Shcore.dll\GetDpiForMonitor", "ptr", hMon, "int", 0, "uint*", dpiX, "uint*", dpiY) = 0)
-		{
-			ret := dpiX / 96.0
-			DllCall("FreeLibrary", "ptr", h)
-			goto done
-		}
-		DllCall("FreeLibrary", "ptr", h)
-	}
-
-	; 如果不存在 Shcore 或调用失败，尝试使用 GetDeviceCaps
-	hDC := DllCall("GetDC", "uint", 0, "ptr")
-	if (hDC)
-	{
-		; LOGPIXELSX = 88
-		dpiX := DllCall("gdi32.dll\GetDeviceCaps", "ptr", hDC, "int", 88)
-		DllCall("ReleaseDC", "uint", 0, "ptr", hDC)
-		if (dpiX && dpiX > 0)
-			ret := dpiX / 96.0
-	}
-
-done:
-	; 确保返回至少 1.0
-	if (ret < 1.0)
-		ret := 1.0
-	return ret
-}
-
 ; Helper: trim whitespace and lowercase for AHK v1 compatibility
 TrimStr(s)
 {
@@ -91,6 +45,48 @@ ToLower(s)
 	tmp := s
 	StringLower, tmp, tmp
 	return tmp
+}
+
+/*
+关于“每监视器 DPI 感知”及其API：SetThreadDpiAwarenessContext
+https://wyagd001.github.io/zh-cn/docs/misc/DPIScaling.htm
+https://learn.microsoft.com/zh-cn/windows/win32/api/winuser/nf-winuser-setthreaddpiawarenesscontext#parameters
+https://learn.microsoft.com/zh-cn/windows/win32/hidpi/dpi-awareness-context
+简单总结
+    1：-3/-4 开启每监视器 DPI 感知
+    2：ahk官网文档：启用每监视器 DPI 感知将禁用系统执行的缩放, 因此诸如 WinMove 和 WinGetPos 之类的命令将接受或返回像素坐标, 不受 DPI 缩放的影响. 然而, 如果一个 GUI 的大小适合于 100 % DPI 的屏幕, 然后移动到 200 % DPI 的屏幕, 它将不会自动调整, 并且可能会非常难以使用.
+    3：个人总结，设置了-3后，后续xywh的数值直接根据像素来计算，不用考虑DPI缩放了
+
+以上说的是“显示器的缩放比例”，但系统依然有一个缩放比例，见下面两个文档
+https://wyagd001.github.io/zh-cn/docs/Variables.htm#ScreenDPI
+https://wyagd001.github.io/zh-cn/docs/lib/Gui.htm#DPIScale
+系统缩放比例=A_ScreenDPI/96，在我的2K屏幕中是144/96=1.5
+
+而在上面DPIScale文档里面，提到Gui -DPIScale选项
+https://wyagd001.github.io/zh-cn/docs/lib/Gui.htm#WindowOptions
+关闭这个选项后，则系统缩放比例也不会生效了
+
+然后我们可以完全用屏幕像素来计算坐标和尺寸，而不必担心 DPI 缩放的影响。
+我的目标是准确定位80%的屏幕宽度，等比缩放图像，展示在屏幕中央。
+*/
+
+EnsureProcessDpiAwareness()
+{
+   
+    ; 但仍需要根据系统显示进行缩放，则 A_ScreenDPI/96，在我的2K屏幕中是144/96=1.5
+    ; https://wyagd001.github.io/zh-cn/docs/lib/Gui.htm#DPIScale
+    DPI_AWARENESS_CONTEXT := -3
+	resCtx := 0
+	; 注意：如果函数不存在，DllCall 会设置 ErrorLevel
+	resCtx := DllCall("user32.dll\SetThreadDpiAwarenessContext", "ptr", DPI_AWARENESS_CONTEXT)
+	if ErrorLevel
+	{
+		Log("SetThreadDpiAwarenessContext[" DPI_AWARENESS_CONTEXT "] failed: " ErrorLevel)
+	}
+	else
+	{
+		Log("SetThreadDpiAwarenessContext[" DPI_AWARENESS_CONTEXT "] succeeded")
+	}
 }
 
 ; Read config file into mappings object (AHK v1 compatible)
@@ -185,7 +181,7 @@ BuildKeyboardGui()
     targetMonIndex := primIndex
     ; 读取主显示器的工作区到 primLeft/primTop/primRight/primBottom
     SysGet, prim, MonitorWorkArea, %primIndex%
-    Log("primary monitor[" primIndex "] work area [" primLeft "," primTop "," primRight "," primBottom "]")
+    ; Log("primary monitor[" primIndex "] work area [" primLeft "," primTop "," primRight "," primBottom "]")
 
 	; 获取监视器数量并选择目标监视器（优先第二屏，有则用 2，否则用 1）
 	SysGet, monCount, MonitorCount
@@ -194,7 +190,7 @@ BuildKeyboardGui()
 		; 获取鼠标位置，判断鼠标是否在主显示器工作区内
         CoordMode, Mouse, Screen
 		MouseGetPos, mx, my
-        Log("mouse pos: " mx "x" my)
+        ; Log("mouse pos: " mx "x" my)
 		if (mx >= primLeft && mx <= primRight && my >= primTop && my <= primBottom)
 		{
 			; 鼠标在主屏上，若存在第二屏则使用第二屏，还要考虑主屏不是1的情况
@@ -223,7 +219,6 @@ BuildKeyboardGui()
         monBottom := primBottom
 	}
 
-
     ; 显示原始大小
     origW := 1920
     origH := 500
@@ -236,23 +231,12 @@ BuildKeyboardGui()
 	targetW := Round(monWidth * 0.8)
 	scale := targetW / origW
 	targetH := Round(origH * scale)
-    
-    Log("target size: " targetW "x" targetH)
+    ; Log("target size: " targetW "x" targetH)
 
 	; 重新创建 GUI，使用指定的宽高来缩放图片，并按比例缩放文本坐标
-	Gui, KeyboardGui: +AlwaysOnTop -Caption +ToolWindow
+	Gui, KeyboardGui: +AlwaysOnTop -Caption +ToolWindow -DPIScale
 	Gui, KeyboardGui: +HwndhGui ; 创建了名为 hGui 的变量
-
-	; 检测系统缩放（DPI）并记录，用于 GUI 渲染等处（按目标显示器索引）
-	detectedScale := GetDpiScale_AhkV1(targetMonIndex)
-    Log("detected DPI scale: " detectedScale)
-
-    picW := Round(targetW / detectedScale)
-    picH := Round(targetH / detectedScale)
-    Log("pic size: " picW "x" picH)
-	Gui, KeyboardGui: Add, Picture, x0 y0 w%picW% h%picH%, %keyboardImgPath%
-
-	; 设置字体（加粗）
+	Gui, KeyboardGui: Add, Picture, x0 y0 w%targetW% h%targetH%, %keyboardImgPath%
 	Gui, KeyboardGui: Font, s10 Bold, Segoe UI
 
 	; 在对应位置渲染映射名称（优先 name，否则使用 target），坐标按 scale 缩放并考虑 DPI
@@ -268,9 +252,9 @@ BuildKeyboardGui()
 			text := map.target
 		}
 
-		; 根据系统 DPI 和缩放系数调整坐标
-		posX := Round((pos.x / detectedScale) * scale)
-		posY := Round((pos.y / detectedScale) * scale)
+		; 根据缩放系数调整坐标
+		posX := Round(pos.x * scale)
+		posY := Round(pos.y * scale)
 
 		; 颜色解析：优先使用映射中的 color 字段
 		col := map.color
@@ -286,27 +270,20 @@ BuildKeyboardGui()
 			}
 		}
 
-        posX := posX + keyboardKeyW *0.2
-        posY := posY + keyboardKeyW *0.1
-        textW := keyboardKeyW * 0.8
-        textH := keyboardKeyW * 0.3
+        posX := posX + keyboardKeyW *0.1 ; 上边框距离10%
+        posY := posY + keyboardKeyW *0.1 ; 左边框距离10%
+        textW := keyboardKeyW * 0.8 ; 文字区域宽度80%
+        textH := keyboardKeyW * 0.3 ; 文字区域高度30%
 		Gui, KeyboardGui: Add, Text, x%posX% y%posY% w%textW% h%textH% +Center +BackgroundTrans c%tmp%, %text%
 	}
 
 	; 将 GUI 居中在目标显示器（水平与垂直居中）
-
 	newX := monLeft + Round((monRight - monLeft - targetW) / 2)
 	newY := monTop + Round((monBottom - monTop - targetH) / 2)
-
-
-    ; newX := Round(newX / detectedScale)
-    ; newY := Round(newY / detectedScale)
-
     Log("target pos: [" newX "," newY "," newX+targetW "," newY+targetH "] size: " targetW "x" targetH)
 
-	; 将 GUI 移动并调整大小以匹配缩放后的图片
-	; 有时 WinMove 对新创建的无边框 GUI 不生效，改用 Gui Show 指定 x/y/w/h 更可靠
-	Gui, KeyboardGui: Show, NoActivate x%newX% y%newY% w%picW% h%picH%
+    ; NoActivate 避免抢焦点
+	Gui, KeyboardGui: Show, NoActivate x%newX% y%newY% w%targetW% h%targetH%
 	keyboardGuiShown := true
 }
 
@@ -333,6 +310,8 @@ defaultColor := "FFFFFF"
 
 SetCapsLockState, Off
 hyperActive := False
+
+EnsureProcessDpiAwareness()
 
 ; 载入映射
 LoadMappings()
