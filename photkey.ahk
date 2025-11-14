@@ -231,13 +231,14 @@ BuildKeyboardGui()
 	targetW := Round(monWidth * 0.8)
 	scale := targetW / origW
 	targetH := Round(origH * scale)
+    frontSize := 10 * scale
     ; Log("target size: " targetW "x" targetH)
 
 	; 重新创建 GUI，使用指定的宽高来缩放图片，并按比例缩放文本坐标
 	Gui, KeyboardGui: +AlwaysOnTop -Caption +ToolWindow -DPIScale
 	Gui, KeyboardGui: +HwndhGui ; 创建了名为 hGui 的变量
 	Gui, KeyboardGui: Add, Picture, x0 y0 w%targetW% h%targetH%, %keyboardImgPath%
-	Gui, KeyboardGui: Font, s10 Bold, Segoe UI
+	Gui, KeyboardGui: Font, s%frontSize% Bold, Segoe UI Black
 
 	; 在对应位置渲染映射名称（优先 name，否则使用 target），坐标按 scale 缩放并考虑 DPI
 	for key, map in mappings
@@ -270,17 +271,17 @@ BuildKeyboardGui()
 			}
 		}
 
-        posX := posX + keyboardKeyW *0.1 ; 上边框距离10%
-        posY := posY + keyboardKeyW *0.1 ; 左边框距离10%
-        textW := keyboardKeyW * 0.8 ; 文字区域宽度80%
-        textH := keyboardKeyW * 0.3 ; 文字区域高度30%
+        posX := posX + keyboardKeyW * scale *0.05 ; 上边框距离5%
+        posY := posY + keyboardKeyW * scale *0.05 ; 左边框距离5%
+        textW := keyboardKeyW * scale * 0.9 ; 文字区域宽度90%
+        textH := keyboardKeyW * scale * 0.3 ; 文字区域高度30%
 		Gui, KeyboardGui: Add, Text, x%posX% y%posY% w%textW% h%textH% +Center +BackgroundTrans c%tmp%, %text%
 	}
 
 	; 将 GUI 居中在目标显示器（水平与垂直居中）
 	newX := monLeft + Round((monRight - monLeft - targetW) / 2)
 	newY := monTop + Round((monBottom - monTop - targetH) / 2)
-    Log("target pos: [" newX "," newY "," newX+targetW "," newY+targetH "] size: " targetW "x" targetH)
+    Log("target pos: [" newX "," newY "," newX+targetW "," newY+targetH "] front["  frontSize "] size: [" targetW "x" targetH "]")
 
     ; NoActivate 避免抢焦点
 	Gui, KeyboardGui: Show, NoActivate x%newX% y%newY% w%targetW% h%targetH%
