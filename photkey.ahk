@@ -290,6 +290,9 @@ Log("mark func def done")
 ; 统一关闭键盘 GUI 与遮罩
 CloseKeyboardGui() {
 	global keyboardGuiShown
+    if (!keyboardGuiShown) {
+        return
+    }
 	; 如果键盘 GUI 存在则销毁
 	Gui, KeyboardGui: Destroy
     Gui, OverlayGui: Destroy
@@ -384,20 +387,23 @@ Log("Everything is ready.")
 ; 静态热键定义
 ; --------------------------------------------------
 ; 使用 CapsLock 作为 HyperKey 切换
-; 保持 CapsLock 指示灯用于显示 HyperKey 状态
+; CapsLock 支持两种模式：toggle（按一次切换）与 hold（按住进入，放开退出）
+
+; toggle 模式(默认)：按一次切换 HyperKey 状态，保持 CapsLock 指示灯用于显示 HyperKey 状态
+
+/*
 CapsLock::
-	hyperActive := !hyperActive
-	if (hyperActive) {
-		SetCapsLockState, On
-		ShowToast("HyperKey ON")
-	} else 	{
-		SetCapsLockState, Off
-		ShowToast("HyperKey OFF")
-        if (keyboardGuiShown) {
-            CloseKeyboardGui()
-        }
-	}
-Return
+    hyperActive := !hyperActive
+    if (hyperActive) {
+        SetCapsLockState, On
+        BuildKeyboardGui()
+        ShowToast("HyperKey ON")
+    } else {
+        SetCapsLockState, Off
+        CloseKeyboardGui()
+        ShowToast("HyperKey OFF")
+    }
+return
 
 ; Hyper + F1: 切换键盘映射面板
 $F1::
@@ -427,7 +433,32 @@ $Esc::
 	; 否则传递普通 Esc
 	SendInput, {Esc}
 Return
+*/
 
+; hold 模式：按下进入 HyperKey 并显示示意图，松开退出并关闭示意图
+*CapsLock::
+	; 按下时进入 HyperKey（仅在尚未激活时处理，避免重复触发）
+	if (hyperActive)
+		Return
+
+	hyperActive := True
+	SetCapsLockState, On
+	if (!keyboardGuiShown) {
+		BuildKeyboardGui()
+	}
+	ShowToast("HyperKey ON")
+Return
+
+CapsLock up::
+	; 松开时退出 HyperKey 并关闭示意图（仅在确实处于激活状态时处理）
+	if (!hyperActive)
+		Return
+
+	hyperActive := False
+	SetCapsLockState, Off
+	CloseKeyboardGui()
+	ShowToast("HyperKey OFF")
+Return
 
 
 ; --------------------------------------------------
