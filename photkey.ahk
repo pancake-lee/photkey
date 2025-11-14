@@ -316,7 +316,8 @@ mappings := {}
 tooltipDuration := 3000 ; ms
 
 ; 颜色映射（名称 -> 十六进制 RGB，无 #）
-colorMap := {"red":"E61C5D", "green":"99CC33", "blue":"00BBF0", "yellow":"FFBD39", "black":"000000", "pink":"E6A4B4"}
+; https://www.rapidtables.org/zh-CN/web/color/RGB_Color.html
+colorMap := {"red":"CC0000", "yellow":"CCCC00", "green":"00CC00", "blue1":"00CCCC", "blue":"0000CC", "purple":"CC00CC", "black":"000000"}
 defaultColor := "FFFFFF"
 
 SetCapsLockState, Off
@@ -397,11 +398,9 @@ CapsLock::
     if (hyperActive) {
         SetCapsLockState, On
         BuildKeyboardGui()
-        ShowToast("HyperKey ON")
     } else {
         SetCapsLockState, Off
         CloseKeyboardGui()
-        ShowToast("HyperKey OFF")
     }
 return
 
@@ -446,7 +445,6 @@ Return
 	if (!keyboardGuiShown) {
 		BuildKeyboardGui()
 	}
-	ShowToast("HyperKey ON")
 Return
 
 CapsLock up::
@@ -457,7 +455,6 @@ CapsLock up::
 	hyperActive := False
 	SetCapsLockState, Off
 	CloseKeyboardGui()
-	ShowToast("HyperKey OFF")
 Return
 
 
