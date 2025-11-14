@@ -211,13 +211,20 @@ BuildKeyboardGui() {
     ; --------------------------------------------------
     ; 有了屏幕大小就可以创建遮罩了
 	; 创建并显示遮罩 OverlayGui（带 hwnd 以便精确设置透明度）
-	Gui, OverlayGui: -Caption +ToolWindow -DPIScale +HwndhOverlay
-	Gui, OverlayGui: Color, 000000
-	Gui, OverlayGui: Show, NoActivate x%monLeft% y%monTop% w%monWidth% h%monHeight%
-	; 使用 hOverlay 精确设置透明度
-	if (hOverlay) {
-		WinSet, Transparent, 200, ahk_id %hOverlay%
-    }
+	if (monCount >= 2) {
+		; 创建并显示遮罩（仅在多屏幕时）
+		Gui, OverlayGui: -Caption +ToolWindow -DPIScale +HwndhOverlay
+		Gui, OverlayGui: Color, 000000
+		Gui, OverlayGui: Show, NoActivate x%monLeft% y%monTop% w%monWidth% h%monHeight%
+		; 使用 hOverlay 精确设置透明度
+		if (hOverlay) {
+			WinSet, Transparent, 200, ahk_id %hOverlay%
+		}
+		OverlayGuiShown := true
+		Log("Overlay shown (multi-monitor)")
+	} else {
+		OverlayGuiShown := false
+	}
 
     ; --------------------------------------------------
     ; 计算示意图展示的尺寸
@@ -226,11 +233,17 @@ BuildKeyboardGui() {
     origW := 1920
     origH := 500
 
-	; 目标宽度为目标显示器工作区宽的 80%
-	targetW := Round(monWidth * 0.8)
+	if (monCount >= 2) {
+        widthRatio := 0.8
+    } else {
+        widthRatio := 0.5
+    }
+
+	; 目标宽度为目标显示器工作区宽的 80%（多屏幕）或 30%（单屏幕）
+	targetW := Round(monWidth * widthRatio)
 	scale := targetW / origW
 	targetH := Round(origH * scale)
-    frontSize := 10 * scale
+    frontSize := 16 * scale
     ; Log("target size: " targetW "x" targetH)
 
 	; 创建 GUI，使用指定的宽高来缩放图片，并按比例缩放文本坐标
@@ -269,15 +282,21 @@ BuildKeyboardGui() {
 
         posX := (pos.x + keyboardKeyW *0.05) * scale ; 上边框距离5%
         posY := (pos.y + keyboardKeyW *0.05) * scale ; 左边框距离5%
-        textW := keyboardKeyW * scale * 0.9 ; 文字区域宽度90%
-        textH := keyboardKeyW * scale * 0.3 ; 文字区域高度30%
-		Gui, KeyboardGui: Add, Text, x%posX% y%posY% w%textW% h%textH% +Center +BackgroundTrans c%tmp%, %text%
+        ; textW := keyboardKeyW * scale * 0.9 ; 文字区域宽度90%
+        ; textH := keyboardKeyW * scale * 0.3 ; 文字区域高度30%
+		; Gui, KeyboardGui: Add, Text, x%posX% y%posY% w%textW% h%textH% +Center +BackgroundTrans c%tmp%, %text%
+		Gui, KeyboardGui: Add, Text, x%posX% y%posY% +Center +BackgroundTrans c%tmp%, %text%
 	}
 
     ; --------------------------------------------------
 	; 将 GUI 居中在目标显示器（水平与垂直居中）
-	newX := monLeft + Round((monRight - monLeft - targetW) / 2)
-	newY := monTop + Round((monBottom - monTop - targetH) / 2)
+	if (monCount >= 2) {
+        newX := monLeft + Round((monRight - monLeft - targetW) / 2)
+        newY := monTop + Round((monBottom - monTop - targetH) / 2)
+    } else {
+        newX := monRight - targetW
+        newY := monBottom - targetH
+    }
     Log("target pos: [" newX "," newY "," newX+targetW "," newY+targetH "] front["  frontSize "] size: [" targetW "x" targetH "]")
 
 	; NoActivate 避免抢焦点
@@ -289,14 +308,20 @@ Log("mark func def done")
 
 ; 统一关闭键盘 GUI 与遮罩
 CloseKeyboardGui() {
-	global keyboardGuiShown
-    if (!keyboardGuiShown) {
-        return
-    }
-	; 如果键盘 GUI 存在则销毁
-	Gui, KeyboardGui: Destroy
-    Gui, OverlayGui: Destroy
-	keyboardGuiShown := false
+	global keyboardGuiShown, OverlayGuiShown
+	; 销毁键盘 GUI（如果存在）
+	if (keyboardGuiShown) {
+		Gui, KeyboardGui: Destroy
+		keyboardGuiShown := false
+		Log("Keyboard GUI destroyed")
+	}
+
+	; 销毁遮罩（如果存在且为多屏创建）
+	if (OverlayGuiShown) {
+		Gui, OverlayGui: Destroy
+		OverlayGuiShown := false
+		Log("Overlay GUI destroyed")
+	}
 
 }
 
@@ -360,6 +385,7 @@ keyboardInterval := 128 ; 两个按键间（左上到左上）的水平间距
 keyboardKeyW := 90 ; 一个按键的宽度
 
 keyboardGuiShown := false ; GUI 控制状态
+OverlayGuiShown := false ; 遮罩(OverlayGui) 控制状态，仅当多屏幕时展示
 
 ; 初始化 keyboardPos：
 ; 对于 keyboardVec 的每一行，使用 keyboardStartPos 对应元素作为起点，
